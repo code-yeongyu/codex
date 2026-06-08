@@ -221,10 +221,28 @@ fn codex_apps_server_config_uses_legacy_codex_apps_path() {
     let mut config = test_mcp_config(PathBuf::from("/tmp"));
     let auth = CodexAuth::create_dummy_chatgpt_auth_for_testing();
 
+    assert!(!host_owned_codex_apps_enabled_for_auth(
+        config.apps_enabled,
+        Some(&auth),
+    ));
+
     let mut servers = with_codex_apps_mcp(HashMap::new(), /*auth*/ None, &config);
     assert!(!servers.contains_key(CODEX_APPS_MCP_SERVER_NAME));
 
     config.apps_enabled = true;
+
+    assert!(host_owned_codex_apps_enabled_for_auth(
+        config.apps_enabled,
+        Some(&auth),
+    ));
+    assert!(!host_owned_codex_apps_enabled_for_auth(
+        config.apps_enabled,
+        Some(&CodexAuth::from_api_key("sk-test")),
+    ));
+    assert!(!host_owned_codex_apps_enabled_for_auth(
+        config.apps_enabled,
+        /*auth*/ None,
+    ));
 
     servers = with_codex_apps_mcp(servers, Some(&auth), &config);
     let server = servers

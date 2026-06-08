@@ -10,6 +10,8 @@ pub use auth::resolve_oauth_scopes;
 pub use auth::should_retry_without_scopes;
 
 pub(crate) mod auth;
+mod codex_apps_gate;
+pub use codex_apps_gate::host_owned_codex_apps_enabled_for_auth;
 
 use std::collections::HashMap;
 use std::env;
@@ -230,7 +232,7 @@ pub fn with_codex_apps_mcp(
 }
 
 pub fn host_owned_codex_apps_enabled(config: &McpConfig, auth: Option<&CodexAuth>) -> bool {
-    config.apps_enabled && auth.is_some_and(CodexAuth::uses_codex_backend)
+    host_owned_codex_apps_enabled_for_auth(config.apps_enabled, auth)
 }
 
 pub fn configured_mcp_servers(config: &McpConfig) -> HashMap<String, McpServerConfig> {
