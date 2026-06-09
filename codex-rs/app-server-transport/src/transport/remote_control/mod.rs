@@ -4,6 +4,7 @@ mod clients;
 mod enroll;
 mod protocol;
 mod segment;
+mod server_name;
 mod websocket;
 
 use self::auth::load_remote_control_auth;
@@ -22,6 +23,7 @@ use self::protocol::RemoteControlPairingStatusCode;
 use self::protocol::ServerEvent;
 use self::protocol::StreamId;
 use self::protocol::normalize_remote_control_url;
+use self::server_name::remote_control_server_name;
 use super::CHANNEL_CAPACITY;
 use super::TransportEvent;
 use super::next_connection_id;
@@ -38,7 +40,6 @@ use codex_app_server_protocol::RemoteControlStatusChangedNotification;
 use codex_login::AuthManager;
 use codex_state::StateRuntime;
 use futures::FutureExt;
-use gethostname::gethostname;
 use std::error::Error;
 use std::fmt;
 use std::io;
@@ -784,7 +785,7 @@ pub async fn start_remote_control(
     let websocket_pairing_persistence_key = pairing_persistence_key.clone();
     let handle_auth_manager = auth_manager.clone();
     let handle_state_db = state_db.clone();
-    let server_name = gethostname().to_string_lossy().trim().to_string();
+    let server_name = remote_control_server_name();
     let remote_control_url = config.remote_control_url;
     let installation_id = config.installation_id;
     let initial_status = RemoteControlStatusChangedNotification {

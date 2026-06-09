@@ -1640,7 +1640,7 @@ async fn remote_control_http_mode_reenrolls_when_refresh_reports_stale_enrollmen
         account_id: "account_id".to_string(),
         environment_id: "env_stale".to_string(),
         server_id: "srv_e_stale".to_string(),
-        server_name: "stale-server".to_string(),
+        server_name: expected_server_name.clone(),
         remote_control_token: None,
         expires_at: None,
     };
@@ -1657,7 +1657,7 @@ async fn remote_control_http_mode_reenrolls_when_refresh_reports_stale_enrollmen
         Some(state_db.as_ref()),
         &remote_control_target,
         "account_id",
-        /*app_server_client_name*/ None,
+        None,
         Some(&stale_enrollment),
     )
     .await
@@ -1675,8 +1675,8 @@ async fn remote_control_http_mode_reenrolls_when_refresh_reports_stale_enrollmen
         remote_control_auth_manager_with_home(&codex_home),
         transport_event_tx,
         shutdown_token.clone(),
-        /*app_server_client_name_rx*/ None,
-        /*initial_enabled*/ true,
+        None,
+        true,
     )
     .await
     .expect("remote control should start");
@@ -1717,12 +1717,7 @@ async fn remote_control_http_mode_reenrolls_when_refresh_reports_stale_enrollmen
     .await;
 
     let (handshake_request, _websocket) = accept_remote_control_backend_connection(&listener).await;
-    expect_remote_control_status(
-        &mut status_rx,
-        /*expected_status*/ None,
-        Some("env_refreshed"),
-    )
-    .await;
+    expect_remote_control_status(&mut status_rx, None, Some("env_refreshed")).await;
     assert_eq!(
         handshake_request.headers.get("x-codex-server-id"),
         Some(&refreshed_enrollment.server_id)
@@ -1732,7 +1727,7 @@ async fn remote_control_http_mode_reenrolls_when_refresh_reports_stale_enrollmen
             Some(state_db.as_ref()),
             &remote_control_target,
             "account_id",
-            /*app_server_client_name*/ None,
+            None,
         )
         .await
         .expect("refreshed enrollment should load"),
@@ -1759,7 +1754,7 @@ async fn remote_control_http_mode_reenrolls_after_explicit_missing_server_404() 
         account_id: "account_id".to_string(),
         environment_id: "env_stale".to_string(),
         server_id: "srv_e_stale".to_string(),
-        server_name: "stale-server".to_string(),
+        server_name: expected_server_name.clone(),
         remote_control_token: None,
         expires_at: None,
     };
@@ -1848,6 +1843,111 @@ async fn remote_control_http_mode_reenrolls_after_explicit_missing_server_404() 
     assert_eq!(
         enroll_request.request_line,
         "POST /backend-api/wham/remote/control/server/enroll HTTP/1.1"
+    );
+    respond_with_json(
+        enroll_request.stream,
+        remote_control_server_token_response(
+            &refreshed_enrollment.server_id,
+            &refreshed_enrollment.environment_id,
+            TEST_REMOTE_CONTROL_SERVER_TOKEN,
+        ),
+    )
+    .await;
+
+    let (handshake_request, _websocket) = accept_remote_control_backend_connection(&listener).await;
+    expect_remote_control_status(
+        &mut status_rx,
+        /*expected_status*/ None,
+        Some("env_refreshed"),
+    )
+    .await;
+    assert_eq!(
+        handshake_request.headers.get("x-codex-server-id"),
+        Some(&refreshed_enrollment.server_id)
+    );
+    assert_eq!(
+        load_persisted_remote_control_enrollment(
+            Some(state_db.as_ref()),
+            &remote_control_target,
+            "account_id",
+            /*app_server_client_name*/ None,
+        )
+        .await
+        .expect("refreshed enrollment should load"),
+        Some(refreshed_enrollment)
+    );
+
+    shutdown_token.cancel();
+    let _ = remote_task.await;
+}
+
+#[tokio::test]
+async fn remote_control_http_mode_reenrolls_when_persisted_name_differs() {
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("listener should bind");
+    let remote_control_url = remote_control_url_for_listener(&listener);
+    let codex_home = TempDir::new().expect("temp dir should create");
+    let state_db = remote_control_state_runtime(&codex_home).await;
+    let remote_control_target =
+        normalize_remote_control_url(&remote_control_url).expect("target should parse");
+    let expected_server_name = gethostname().to_string_lossy().trim().to_string();
+    let stale_enrollment = RemoteControlEnrollment {
+        remote_control_target: remote_control_target.clone(),
+        account_id: "account_id".to_string(),
+        environment_id: "env_stale".to_string(),
+        server_id: "srv_e_stale".to_string(),
+        server_name: "stale-server".to_string(),
+        remote_control_token: None,
+        expires_at: None,
+    };
+    let refreshed_enrollment = RemoteControlEnrollment {
+        remote_control_target: remote_control_target.clone(),
+        account_id: "account_id".to_string(),
+        environment_id: "env_refreshed".to_string(),
+        server_id: "srv_e_refreshed".to_string(),
+        server_name: expected_server_name,
+        remote_control_token: None,
+        expires_at: None,
+    };
+    update_persisted_remote_control_enrollment(
+        Some(state_db.as_ref()),
+        &remote_control_target,
+        "account_id",
+        /*app_server_client_name*/ None,
+        Some(&stale_enrollment),
+    )
+    .await
+    .expect("stale enrollment should save");
+
+    let (transport_event_tx, _transport_event_rx) =
+        mpsc::channel::<TransportEvent>(CHANNEL_CAPACITY);
+    let shutdown_token = CancellationToken::new();
+    let (remote_task, remote_handle) = start_remote_control(
+        RemoteControlStartConfig {
+            remote_control_url,
+            installation_id: TEST_INSTALLATION_ID.to_string(),
+        },
+        Some(state_db.clone()),
+        remote_control_auth_manager_with_home(&codex_home),
+        transport_event_tx,
+        shutdown_token.clone(),
+        /*app_server_client_name_rx*/ None,
+        /*initial_enabled*/ true,
+    )
+    .await
+    .expect("remote control should start");
+    let mut status_rx = remote_handle.status_receiver();
+
+    let enroll_request = accept_http_request(&listener).await;
+    assert_eq!(
+        enroll_request.request_line,
+        "POST /backend-api/wham/remote/control/server/enroll HTTP/1.1"
+    );
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&enroll_request.body)
+            .expect("enroll body should deserialize")["name"],
+        refreshed_enrollment.server_name
     );
     respond_with_json(
         enroll_request.stream,

@@ -1364,13 +1364,28 @@ async fn prepare_remote_control_enrollment(
             connect_options.app_server_client_name,
         )
         .await?;
-        if let Some(loaded_enrollment) = loaded_enrollment.as_ref() {
-            status_publisher.publish_environment_id(Some(loaded_enrollment.environment_id.clone()));
-        }
-        *enrollment = loaded_enrollment.map(|mut enrollment| {
-            enrollment.server_name = connect_options.server_name.to_string();
-            enrollment
-        });
+        *enrollment = match loaded_enrollment {
+            Some(loaded_enrollment)
+                if loaded_enrollment.server_name != connect_options.server_name =>
+            {
+                clear_remote_control_enrollment(
+                    state_db,
+                    remote_control_target,
+                    &auth.account_id,
+                    connect_options.app_server_client_name,
+                    enrollment,
+                    status_publisher,
+                )
+                .await;
+                None
+            }
+            Some(loaded_enrollment) => {
+                status_publisher
+                    .publish_environment_id(Some(loaded_enrollment.environment_id.clone()));
+                Some(loaded_enrollment)
+            }
+            None => None,
+        };
     }
 
     enroll_remote_control_server_if_missing(
